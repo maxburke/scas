@@ -1,0 +1,4 @@
+*.o
+scas_client
+scas_server
+
