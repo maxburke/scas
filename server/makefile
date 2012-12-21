@@ -1,0 +1,14 @@
+CC = gcc
+CFLAGS = -g -std=c99 -Wall -Wextra -Werror -pedantic -g 
+OBJS = main.o
+HEADERS = scas_base.h scas_mount.h
+
+%.o : %.c $(HEADERS)
+	$(CC) -c -o $@ $< $(CFLAGS)
+
+scas_server : $(OBJS)
+	gcc -o $@ $(LIBS) $^ $(CFLAGS)
+
+clean :
+	rm *.o
+	rm scas_server
