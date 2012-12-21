@@ -1,4 +1,6 @@
 *.o
+*.log
+*.swp
 scas_client
 scas_server
 
