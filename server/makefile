@@ -9,6 +9,11 @@ HEADERS = scas_base.h scas_mount.h
 scas_server : $(OBJS)
 	gcc -o $@ $(LIBS) $^ $(CFLAGS)
 
+.PHONY : clean
 clean :
 	rm *.o
 	rm scas_server
+
+.PHONY : all
+all : scas_server
+
