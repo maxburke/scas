@@ -13,7 +13,7 @@ scas_mount_snapshot(const char *server_name, const char *snapshot_name)
 
     if (sockfd < 0)
     {
-        return 1;
+        return -ENOCONN;
     }
 
     return 1;

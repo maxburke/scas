@@ -3,6 +3,9 @@
 
 #define UNUSED(x) (void)x
 
+#define ENOTIMPL 1
+#define ENOCONN 2
+
 void
 scas_log_init(void);
 
