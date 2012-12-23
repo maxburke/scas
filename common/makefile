@@ -1,6 +1,5 @@
 CC = gcc
 CFLAGS = -g -std=c99 -Wall -Wextra -Werror -pedantic -I/usr/local/include -L/usr/local/lib -D_FILE_OFFSET_BITS=64 
-LIBS = -lfuse4x
 OBJS = scas_base.o
 HEADERS = scas_base.h
 

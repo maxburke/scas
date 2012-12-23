@@ -1,12 +1,14 @@
+OS := $(shell uname)
+
 .PHONY: all
 all:
-	cd common; make all; cd ..
-	cd server; make all; cd ..
-	cd client; make all; cd ..
+	cd common; make all OS=$(OS); cd ..
+	cd server; make all OS=$(OS); cd ..
+	cd client; make all OS=$(OS); cd ..
 
 .PHONY: clean
 clean:
-	cd common; make clean; cd ..
-	cd server; make clean; cd ..
-	cd client; make clean; cd ..
+	cd common; make clean OS=$(OS); cd ..
+	cd server; make clean OS=$(OS); cd ..
+	cd client; make clean OS=$(OS); cd ..
 
