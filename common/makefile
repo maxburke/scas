@@ -3,8 +3,8 @@ DEFINES = _POSIX_C_SOURCE=200112L _XOPEN_SOURCE _FILE_OFFSET_BITS=64
 INCLUDEDIRS = /usr/local/include
 
 CFLAGS = -g -std=c99 -Wall -Wextra -Werror -pedantic
-OBJS = scas_base.o scas_net.o
-HEADERS = scas_base.h scas_net.h
+OBJS = $(patsubst %.c,%.o,$(wildcard *.c))
+HEADERS = $(wildcard *.h)
 
 %.o : %.c $(HEADERS)
 	$(CC) -c -o $@ $< $(CFLAGS) $(addprefix -I, $(INCLUDEDIRS)) $(addprefix -D, $(DEFINES))

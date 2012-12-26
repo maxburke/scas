@@ -1,7 +1,7 @@
 CC = gcc
 CFLAGS = -g -std=c99 -Wall -Wextra -Werror -pedantic -g 
-OBJS = main.o
-HEADERS = scas_base.h scas_mount.h
+OBJS = $(patsubst %.c,%.o,$(wildcard *.c))
+HEADERS = $(wildcard *.h)
 
 %.o : %.c $(HEADERS)
 	$(CC) -c -o $@ $< $(CFLAGS)
