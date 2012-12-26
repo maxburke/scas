@@ -1,10 +1,13 @@
 CC = gcc
-CFLAGS = -g -std=c99 -Wall -Wextra -Werror -pedantic -I/usr/local/include -L/usr/local/lib -D_FILE_OFFSET_BITS=64 
-OBJS = scas_base.o
-HEADERS = scas_base.h
+DEFINES = _POSIX_C_SOURCE=200112L _XOPEN_SOURCE _FILE_OFFSET_BITS=64
+INCLUDEDIRS = /usr/local/include
+
+CFLAGS = -g -std=c99 -Wall -Wextra -Werror -pedantic
+OBJS = scas_base.o scas_net.o
+HEADERS = scas_base.h scas_net.h
 
 %.o : %.c $(HEADERS)
-	$(CC) -c -o $@ $< $(CFLAGS)
+	$(CC) -c -o $@ $< $(CFLAGS) $(addprefix -I, $(INCLUDEDIRS)) $(addprefix -D, $(DEFINES))
 
 libscas_common.a : $(OBJS)
 	if test -f $@; then rm $@; fi

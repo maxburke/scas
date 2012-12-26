@@ -13,7 +13,7 @@ endif
 CFLAGS = -g -std=c99 -Wall -Wextra -Werror -pedantic
 LDFLAGS = -g -L/usr/local/lib -L../common
 
-OBJS = main.o scas_mount.o scas_create.o scas_list.o scas_net.o
+OBJS = main.o scas_mount.o scas_create.o scas_list.o
 HEADERS = scas_mount.h
 
 %.o : %.c $(HEADERS)
