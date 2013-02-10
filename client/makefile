@@ -19,7 +19,7 @@ HEADERS = $(wildcard *.h)
 %.o : %.c $(HEADERS)
 	$(CC) -c -o $@ $< $(CFLAGS) $(addprefix -I, $(INCLUDEDIRS)) $(addprefix -D, $(DEFINES))
 
-scas_client : $(OBJS)
+scas_client : $(OBJS) ../common/libscas_common.a
 	gcc -o $@ $^ $(LDFLAGS) $(addprefix -L, $(LIBDIRS)) $(addprefix -l, $(LIBS))
 
 .PHONY: clean

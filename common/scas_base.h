@@ -1,6 +1,17 @@
 #ifndef SCAS_BASE_H
 #define SCAS_BASE_H
 
+#include <stdio.h>
+#include <signal.h>
+#ifndef NDEBUG
+#include <stdio.h>
+#    define BREAK() do { fprintf(stderr, "%s:%d: Breakpoint raised\n", __FILE__, __LINE__); raise(SIGTRAP); } while (0)
+#else
+#    define BREAK() raise(SIGTRAP)
+#endif
+
+#define VERIFY(x) if (!(x)) { scas_log("%s:%d: %s", __FILE__, __LINE__, #x); BREAK(); } else (void)0
+
 #define UNUSED(x) (void)x
 
 #define ENOTIMPL 1
@@ -14,6 +25,9 @@ scas_log_shutdown(void);
 
 void
 scas_log(const char *format, ...);
+
+void
+scas_log_system_error(const char *str);
 
 #endif
 

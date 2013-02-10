@@ -3,30 +3,57 @@
 #include <stddef.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <string.h>
 #include <unistd.h>
 
 #include "scas_base.h"
 #include "scas_net.h"
 
-/*
- * SCAS packets contain a header and a payload, the latter depends on the 
- * particular command being sent to the server. The header contains both
- * the size of the command as well as the command being sent. 
- *
- * All data is little endian.
- */
+#define SCAS_PORT 15240
 
-struct scas_header_t
+#define SCAS_VERIFY(x, str) if (!(x)) { scas_log_system_error(str); return -1; } else (void)0
+
+int
+scas_listen(void)
 {
-    uint64_t packet_size;
-    uint32_t command;
-};
+    int socket_fd;
+    struct sockaddr_in addr;
+    const int LISTEN_BACKLOG = 50;
+
+    memset(&addr, 0, sizeof addr);
+    socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+   
+    SCAS_VERIFY(socket_fd == 1, "Could not create socket");
+
+    addr.sin_port = htons(SCAS_PORT);
+    addr.sin_addr.s_addr = INADDR_ANY;
+    addr.sin_family = AF_INET;
+
+    SCAS_VERIFY(bind(socket_fd, (struct sockaddr *)&addr, sizeof addr) == 0, "Could not bind socket");
+    SCAS_VERIFY(listen(socket_fd, LISTEN_BACKLOG) == 0, "Could not listen on socket");
+
+    return socket_fd;
+}
+
+int
+scas_accept(int socket_fd)
+{
+    int socket;
+    struct sockaddr_in connection;
+    socklen_t size;
+
+    size = sizeof connection;
+    socket = accept(socket_fd, (struct sockaddr *)&connection, &size);
+    VERIFY(socket != -1);
+
+    return socket;
+}
 
 int
 scas_connect(const char *server_name)
 {
     struct addrinfo *addrinfo, *p;
-    int sockfd;
+    int socket_fd;
     int success = 0;
 
     if (getaddrinfo(server_name, NULL, NULL, &addrinfo))
@@ -40,12 +67,34 @@ scas_connect(const char *server_name)
         if (p->ai_socktype != SOCK_STREAM)
             continue;
 
-        sockfd = connect(p->ai_family, p->ai_addr, p->ai_protocol);
+        socket_fd = socket(p->ai_family, p->ai_socktype, p->ai_protocol);
 
-        if (sockfd < 0)
+        if (socket_fd < 0)
             continue;
 
-        if (connect(sockfd, p->ai_addr, p->ai_addrlen) == 0)
+        switch (p->ai_addr->sa_family)
+        {
+            case AF_INET:
+                {
+                    struct sockaddr_in *s;
+
+                    s = (struct sockaddr_in *)p->ai_addr;
+                    s->sin_port = htons(SCAS_PORT);
+                }
+                break;
+            case AF_INET6:
+                {
+                    struct sockaddr_in6 *s;
+
+                    s = (struct sockaddr_in6 *)p->ai_addr;
+                    s->sin6_port = htons(SCAS_PORT);
+                }
+            default:
+                BREAK();
+                break;
+        }
+
+        if (connect(socket_fd, p->ai_addr, p->ai_addrlen) == 0)
         {
             success = 1;
             break;
@@ -60,7 +109,7 @@ scas_connect(const char *server_name)
         return -1;
     }
 
-    return sockfd;
+    return socket_fd;
 }
 
 static void

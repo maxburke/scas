@@ -1,5 +1,8 @@
 #include <stdarg.h>
 #include <stdio.h>
+#include <string.h>
+
+#include <errno.h>
 
 #include "scas_base.h"
 
@@ -36,5 +39,20 @@ scas_log(const char *format, ...)
     vfprintf(fp, format, args);
     fprintf(fp, "\n");
     va_end(args);
+}
+
+void
+scas_log_system_error(const char *str)
+{
+    int error;
+    char error_buf[256];
+
+    error = errno;
+    strerror_r(error, error_buf, sizeof error_buf);
+    error_buf[255] = 0;
+
+    scas_log("Error: %s. (%d: %s)", str, error, error_buf);
+
+    BREAK();
 }
 

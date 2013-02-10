@@ -13,6 +13,26 @@ enum scas_command_t
 };
 
 /*
+ * SCAS packets contain a header and a payload, the latter depends on the 
+ * particular command being sent to the server. The header contains both
+ * the size of the command as well as the command being sent. 
+ *
+ * All data is little endian.
+ */
+
+struct scas_header_t
+{
+    uint64_t packet_size;
+    uint32_t command;
+};
+
+int
+scas_listen(void);
+
+int
+scas_accept(int socket_fd);
+
+/*
  * Connects to the specified server. On success, returns a socket that can be 
  * read from/written to. On failure, returns < 0.
  */
