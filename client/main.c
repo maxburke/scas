@@ -105,6 +105,24 @@ int main(int argc, char *argv[])
     snapshot_server = NULL;
     snapshot_root = NULL;
 
+    /*
+     * TODO: 
+     * Design thoughts:
+     * Snapshots should only be created from mounted volumes. This way the
+     * knows what changes have been made without resorting to OS tricks like
+     * NTFS journals, etc. 
+     *
+     * The workflow in this case would be to mount a snapshot for revision X,
+     * apply changes (ie: sync from the VCS), and then create the new snapshot.
+     * SCAS might want to add another operation, reset, to reset the current
+     * state to the canonical version of the current revision to facilitate 
+     * creating a clean snapshot.
+     *
+     * Another operation that would come out from this is "populate" which
+     * would create a snapshot from an arbitrary volume. Populate would be used
+     * to create the initial snapshot, or other initial/arbitrary snapshots.
+     */
+
     for (i = 1; i < (argc - 1); ++i)
     {
         if (i < (argc - 2))
