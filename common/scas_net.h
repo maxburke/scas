@@ -2,14 +2,15 @@
 #define SCAS_NET_H
 
 #include <stddef.h>
+#include <stdint.h>
 
 enum scas_command_t
 {
     CMD_SNAPSHOT_LIST,
     CMD_SNAPSHOT_PUSH,
-    CMD_SHAPSHOT_PULL,
+    CMD_SNAPSHOT_PULL,
     CMD_DATA_FETCH,
-    CMD_DATA_PUSH
+    CMD_QUIT
 };
 
 /*
