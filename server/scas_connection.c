@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -10,14 +11,22 @@
 
 #define POOL_REALLOCATION_DELTA 16
 
+enum connection_state_t
+{
+    NEW,
+    RECEIVING_HEADER
+};
+
 struct scas_connection_t
 {
     struct scas_connection_t *next;
     struct scas_connection_t *prev;
+    struct scas_header_t header;
     int fd;
-    enum scas_command_t command;
+    enum connection_state_t state;
     void *ptr;
-    size_t offset;
+    uint64_t offset;
+    uint64_t size;
 };
 
 struct scas_connection_t free_list_anchor;
@@ -49,20 +58,6 @@ scas_connection_list_add(struct scas_connection_t *list, struct scas_connection_
     connection->prev = list;
     list->next->prev = connection;
     list->next = connection;
-}
-
-static struct scas_connection_t *
-scas_connection_list_pop(struct scas_connection_t *list)
-{
-    struct scas_connection_t *connection;
-
-    if (list->next == list)
-        return NULL;
-
-    connection = list->next;
-    scas_connection_list_remove(connection);
-
-    return connection;
 }
 
 static int
@@ -139,15 +134,180 @@ scas_connection_initialize(void)
     live_list_anchor.prev = &live_list_anchor;
 }
 
+static int
+scas_connection_read(struct scas_connection_t *connection)
+{
+    ssize_t result;
+    char *ptr;
+    size_t offset;
+    size_t size;
+    size_t nbytes;
+
+    offset = connection->offset;
+    size = connection->size;
+    ptr = (char *)connection->ptr + offset;
+    nbytes = size - offset;
+
+    result = read(connection->fd, ptr, nbytes);
+
+    if (result >= 0)
+    {
+        size_t new_offset = offset + (size_t)result;
+        connection->offset = new_offset;
+        return new_offset != size;
+    }
+
+    /*
+     * The only error codes we should see here should be EAGAIN/EWOULDBLOCK.
+     * All else are "unexpected".
+     */
+    assert(errno == EAGAIN || errno == EWOULDBLOCK);
+    return 1;
+}
+
+static int
+scas_connection_process_command(struct scas_connection_t *connection)
+{
+    switch (connection->header.command)
+    {
+        /* 
+         * The message flow for the commands is documented as 
+         *   client ->
+         * for messages being sent to the server from the client; or
+         *          <- server
+         * for messages being sent to the client from the server; and
+         *          XX
+         * for end of session.
+         */
+        case CMD_SNAPSHOT_LIST:
+            /*
+             * struct scas_snapshot_t 
+             * {
+             *     uint64_t timestamp;
+             *     uint32_t name_length;
+             *     char name[0];
+             * };
+             *
+             *   SNAPSHOT_LIST ->
+             *                 <- list of scas_snapshot_t structures
+             *
+             * The name_length field is exclusive of the null termination byte
+             * that the name field includes.
+             */
+            BREAK();
+            break;
+        case CMD_SNAPSHOT_PUSH:
+            /*
+             * These data structures are used for both the SNAPSHOT_PUSH and
+             * SNAPSHOT_PULL operations:
+             *
+             * struct scas_file_meta_t
+             * {
+             *     uint64_t timestamp;
+             *     uint64_t size;
+             *     uint32_t flags;
+             *     struct scas_hash_t content_id;
+             * };
+             *
+             * struct scas_directory_entry_t
+             * {
+             *     uint32_t nentries;
+             *     struct scas_file_meta_t meta[0];
+             *     uint32_t name_blob_indices[0];
+             *     char name_blob[0];
+             * };
+             *
+             * The arrays meta/name_blob_indices/name_blob all have nentries
+             * entries in them. The name_blob field consists of all the names
+             * for files in the directory, null terminated, jammed together.
+             * The indices for the start of each name are stored in 
+             * name_blob_indices, meaning that to index the seventh name in 
+             * the directory entry, you would use the expression
+             * name_blog[name_blob_indices[6]].
+             *
+             * The client only sends the root node of the snapshot. The server
+             * will iterate over the contained files in the root node and its
+             * descendents to verify the contents. For content it does not
+             * have, the server will issue DATA_FETCH commands to the client.
+             *
+             *                      SNAPSHOT_PUSH ->
+             *        struct scas_snapshot_t meta ->
+             * struct scas_directory_entry_t root ->
+             *                                    <- DATA_FETCH 
+             *                                    <- struct scas_hash_t hash
+             *             data (gzip compressed) ->
+             *                                   ....
+             *                                    <- DATA_FETCH ...
+             *                                    <- struct scas_hash_t hash
+             *             data (gzip compressed) ->
+             */
+            BREAK();
+            break;
+        case CMD_SNAPSHOT_PULL:
+            /*
+             * SNAPSHOT_PULL ->
+             *               <- struct scas_directory_entry_t root
+             */
+            BREAK();
+            break;
+        case CMD_DATA_FETCH:
+            /*
+             * struct scas_hash_t
+             * {
+             *     uint32_t hash[5];
+             * };
+             *
+             *              DATA_FETCH ->
+             * struct scas_hash_t hash ->
+             *                         <- data (gzip compressed)
+             */
+            BREAK();
+            break;
+        case CMD_QUIT:
+            /*
+             * By returning non-zero from here to the main loop the session
+             * will be terminated and the socket closed.
+             */
+            scas_connection_free(connection);
+            return 1;
+        default:
+            assert(0 && "Garbled command field.");
+    }
+
+    return 0;
+}
+
+static int
+scas_connection_iterate(struct scas_connection_t *connection)
+{
+    switch (connection->state)
+    {
+        case NEW:
+            connection->ptr = &connection->header;
+            connection->size = sizeof(struct scas_header_t);
+            connection->state = RECEIVING_HEADER;
+            /*
+             * Deliberate fall-through to the RECEIVING_HEADER case.
+             */
+        case RECEIVING_HEADER:
+            if (scas_connection_read(connection) != 0)
+            {
+                return 0;
+            }
+
+        default:
+            return scas_connection_process_command(connection);
+            break;
+    }
+}
+
 int
 scas_handle_connection(int fd)
 {
     struct scas_connection_t *connection;
-    struct scas_header_t header;
 
     connection = scas_connection_find(fd);
 
-    UNUSED(header);
-    UNUSED(connection);
+    return scas_connection_iterate(connection);
 }
 
