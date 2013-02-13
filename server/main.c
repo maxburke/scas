@@ -6,6 +6,7 @@
 #include <sys/socket.h>
 
 #include "scas_base.h"
+#include "scas_cas.h"
 #include "scas_connection.h"
 #include "scas_net.h"
 
@@ -40,6 +41,7 @@ main(void)
     struct epoll_event events[MAX_NUM_EVENTS];
 
     scas_connection_initialize();
+    scas_cas_cache_initialize();
 
     socket_fd = scas_listen();
     epoll_fd = epoll_create1(0);
