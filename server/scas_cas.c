@@ -29,6 +29,8 @@ long cache_counter;
 void
 scas_cas_cache_initialize(void)
 {
+    scas_mkdir(CACHE_ROOT);
+
     if (cache != NULL)
         return;
 

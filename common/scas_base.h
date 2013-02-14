@@ -29,5 +29,8 @@ scas_log(const char *format, ...);
 void
 scas_log_system_error(const char *str);
 
+void
+scas_mkdir(const char *dir);
+
 #endif
 

@@ -1,8 +1,11 @@
+#include <assert.h>
+#include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
-#include <errno.h>
+#include <sys/stat.h>
 
 #include "scas_base.h"
 
@@ -54,5 +57,39 @@ scas_log_system_error(const char *str)
     scas_log("Error: %s. (%d: %s)", str, error, error_buf);
 
     BREAK();
+}
+
+void
+scas_mkdir(const char *dir)
+{
+    int result;
+
+    result = mkdir(dir, S_IRUSR | S_IWUSR);
+
+    if (result != 0)
+    {
+        if (errno == EEXIST)
+        {
+            struct stat meta;
+
+            result = stat(dir, &meta);
+            assert(result == 0);
+
+            /*
+             * If the directory already exists then we're good. If it doesn't,
+             * and instead it is actually a file, then we have a problem. So,
+             * abort!
+             */
+            if (S_ISDIR(meta.st_mode))
+            {
+                return;
+            }
+
+            scas_log_system_error("Regular file with name exists where you were trying to create a directory.");
+        }
+
+        scas_log_system_error("Could not create directory.");
+        abort();
+    }
 }
 
