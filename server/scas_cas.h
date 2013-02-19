@@ -1,12 +1,7 @@
 #ifndef SCAS_CAS_H
 #define SCAS_CAS_H
 
-#include <stdint.h>
-
-struct scas_hash_t
-{
-    uint32_t hash[5];
-};
+#include "scas_base.h"
 
 struct scas_cas_entry_t
 {

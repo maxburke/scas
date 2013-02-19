@@ -172,6 +172,19 @@ scas_cas_allocate_entry(struct scas_hash_t hash)
     return entry;
 }
 
+int
+scas_cas_contains(struct scas_hash_t hash)
+{
+    char filename[FILENAME_SIZE] = CACHE_ROOT;
+    struct stat meta;
+    int result;
+
+    scas_cas_create_filename(filename + sizeof(CACHE_ROOT), sizeof filename, hash);
+    result = stat(filename, &meta);
+
+    return result == 0;
+}
+
 const struct scas_cas_entry_t *
 scas_cas_read(struct scas_hash_t hash)
 {

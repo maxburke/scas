@@ -1,8 +1,10 @@
 #ifndef SCAS_BASE_H
 #define SCAS_BASE_H
 
+#include <stdint.h>
 #include <stdio.h>
 #include <signal.h>
+
 #ifndef NDEBUG
 #include <stdio.h>
 #    define BREAK() do { fprintf(stderr, "%s:%d: Breakpoint raised\n", __FILE__, __LINE__); raise(SIGTRAP); } while (0)
@@ -16,6 +18,12 @@
 
 #define ENOTIMPL 1
 #define ENOCONN 2
+
+
+struct scas_hash_t
+{
+    uint32_t hash[5];
+};
 
 void
 scas_log_init(void);
