@@ -6,7 +6,6 @@
 
 enum scas_command_t
 {
-    CMD_SNAPSHOT_LIST,
     CMD_SNAPSHOT_PUSH,
     CMD_SNAPSHOT_PULL,
     CMD_DATA_FETCH,
@@ -26,6 +25,12 @@ struct scas_header_t
     uint64_t packet_size;
     uint32_t command;
 };
+
+static inline uint64_t
+scas_header_payload_size(struct scas_header_t header)
+{
+    return header.packet_size - sizeof(struct scas_header_t);
+}
 
 int
 scas_listen(void);
