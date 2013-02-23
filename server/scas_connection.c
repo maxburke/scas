@@ -189,7 +189,16 @@ scas_connection_initialize(void)
         {                                                                   \
             size_t new_offset = offset + (size_t)result;                    \
             connection->offset = new_offset;                                \
-            return new_offset != size;                                      \
+                                                                            \
+            if (new_offset == size)                                         \
+            {                                                               \
+                connection->ptr = NULL;                                     \
+                connection->size = 0;                                       \
+                connection->offset = 0;                                     \
+                return 0;                                                   \
+            }                                                               \
+                                                                            \
+            return 1;                                                       \
         }                                                                   \
                                                                             \
         /*                                                                  \
@@ -220,6 +229,7 @@ struct scas_snapshot_push_context_t
 {
     struct scas_file_meta_t snapshot_meta;
     struct scas_hash_t current_dir_record;
+    struct scas_hash_t current_file_record;
     struct scas_header_t push_header;
     struct scas_fetch_packet_t fetch_packet;
     struct scas_cas_entry_t *cas_entry;
@@ -229,14 +239,15 @@ struct scas_snapshot_push_context_t
     struct scas_recursion_context_t stack[1024];
 };
 
-static struct hash_t
+static struct scas_hash_t
 scas_get_parent(struct scas_hash_t hash)
 {
     const struct scas_cas_entry_t *cas_entry;
     struct scas_directory_meta_t *meta;
 
-    cas_entry = scas_cas_read(hash);
+    cas_entry = scas_cas_read_acquire(hash);
     meta = cas_entry->mem;
+    scas_cas_read_release(cas_entry);
 
     return meta->parent;
 }
@@ -266,6 +277,56 @@ scas_initialize_snapshot_push_context(struct scas_connection_t *connection)
     connection->offset = 0;
 
     return context;
+}
+
+static int
+scas_snapshot_push_issue_fetch(struct scas_connection_t *connection, struct scas_hash_t hash)
+{
+    struct scas_snapshot_push_context_t *context;
+
+    context = connection->context;
+
+    if (connection->ptr == NULL)
+    {
+        context->fetch_packet.header.packet_size = sizeof(struct scas_header_t) + sizeof(struct scas_hash_t);
+        context->fetch_packet.header.command = CMD_DATA_FETCH;
+        context->fetch_packet.hash = hash;
+
+        connection->ptr = &context->fetch_packet;
+        connection->offset = 0;
+        connection->size = sizeof(struct scas_fetch_packet_t);
+    }
+
+    if (scas_connection_write(connection) != 0)
+    {
+        return 1;
+    }
+
+    connection->ptr = &context->push_header;
+    connection->offset = 0;
+    connection->size = sizeof(struct scas_header_t);
+
+    return 0;
+}
+
+static int
+scas_snapshot_push_read_header(struct scas_connection_t *connection, struct scas_hash_t record)
+{
+    struct scas_snapshot_push_context_t *context;
+
+    context = connection->context;
+
+    if (scas_connection_read(connection) != 0)
+    {
+        return 1;
+    }
+
+    context->cas_entry = scas_cas_begin_write(record, scas_header_payload_size(context->push_header));
+    connection->ptr = context->cas_entry->mem;
+    connection->offset = 0;
+    connection->size = context->cas_entry->size;
+
+    return 0;
 }
 
 static int
@@ -300,7 +361,9 @@ scas_snapshot_push_iterate(struct scas_connection_t *connection)
         READING_DIRECTORY_HEADER,
         READING_DIRECTORY,
         ITERATING_OVER_DIRECTORY,
-        FETCHING_FILE
+        FETCHING_FILE,
+        READING_FILE_HEADER,
+        READ_FILE
     };
 
     struct scas_snapshot_push_context_t *context;
@@ -311,6 +374,16 @@ scas_snapshot_push_iterate(struct scas_connection_t *connection)
 
     for (;;)
     {
+        /*
+         * Each state block is something that can block. If the operation
+         * blocks we can exit the function and resume later. 
+         */
+
+        /*
+         * The initial state happens the first time we recurse into a 
+         * directory. It checks to see if the current directory entry
+         * exists in the CAS and if it does, skips out.
+         */
         if (state == INITIAL)
         {
             if (scas_cas_contains(context->current_dir_record))
@@ -321,45 +394,44 @@ scas_snapshot_push_iterate(struct scas_connection_t *connection)
             state = FETCHING_DIRECTORY;
         }
 
+        /*
+         * In the fetch directory state we grab the directory record from
+         * the client by writing a DATA_FETCH command for the specified 
+         * hash value.
+         *
+         * This can block on writing the fetch packet to the network stream,
+         * though likely won't in practice.
+         */
         if (state == FETCHING_DIRECTORY)
         {
-            if (connection->ptr == NULL)
-            {
-                context->fetch_packet.header.packet_size = sizeof(struct scas_header_t) + sizeof(struct scas_hash_t);
-                context->fetch_packet.header.command = CMD_DATA_FETCH;
-                context->fetch_packet.hash = context->current_dir_record;
-
-                connection->ptr = &context->fetch_packet;
-                connection->offset = 0;
-                connection->size = sizeof(struct scas_fetch_packet_t);
-            }
-
-            if (scas_connection_write(connection) != 0)
+            if (scas_snapshot_push_issue_fetch(connection, context->current_dir_record))
             {
                 goto save_state_and_yield;
             }
-
-            connection->ptr = &context->push_header;
-            connection->offset = 0;
-            connection->size = sizeof(struct scas_header_t);
 
             state = READING_DIRECTORY_HEADER;
         }
 
+        /*
+         * Read the directory entry fetch packet header. This then allocates
+         * a new CAS entry for the record we are reading plus the size of
+         * the record as stated in the fetch packet header.
+         */
         if (state == READING_DIRECTORY_HEADER)
         {
-            if (scas_connection_read(connection) != 0)
+            if (scas_snapshot_push_read_header(connection, context->current_dir_record))
             {
                 goto save_state_and_yield;
             }
 
-            context->cas_entry = scas_cas_begin_write(context->current_dir_record, scas_header_payload_size(context->push_header));
-            connection->ptr = context->cas_entry->mem;
-            connection->offset = 0;
-            connection->size = context->cas_entry->size;
             state = READING_DIRECTORY;
         }
 
+        /*
+         * Read the directory header. It's possible that this would block on
+         * the read if the directory entry was big. After the directory entry
+         * is read we then prep the stack should we need to recurse into it.
+         */
         if (state == READING_DIRECTORY)
         {
             struct scas_cas_entry_t *cas_entry;
@@ -382,6 +454,10 @@ scas_snapshot_push_iterate(struct scas_connection_t *connection)
             state = ITERATING_OVER_DIRECTORY;
         }
 
+        /*
+         * Iterate over each entry in the directory, descending into 
+         * subdirectories where they exist.
+         */
         if (state == ITERATING_OVER_DIRECTORY)
         {
             uint32_t num_entries;
@@ -389,16 +465,15 @@ scas_snapshot_push_iterate(struct scas_connection_t *connection)
             const struct scas_cas_entry_t *directory;
             struct scas_directory_meta_t *directory_entry;
             struct scas_file_meta_t *meta;
-            struct scas_recursion_context_t *stack = &context->stack[context->depth];
-
-            directory = scas_cas_read(context->current_dir_record);
+            struct scas_recursion_context_t *stack;
+            
+            stack = &context->stack[context->depth];
+            directory = scas_cas_read_acquire(context->current_dir_record);
             directory_entry = directory->mem;
             meta = scas_get_file_meta_base(directory_entry);
 
             for (i = stack->current_idx, num_entries = stack->num_entries; i < num_entries; ++i)
             {
-                struct scas_file_meta_t *meta;
-
                 if (scas_cas_contains(meta[i].content))
                 {
                     continue;
@@ -413,11 +488,14 @@ scas_snapshot_push_iterate(struct scas_connection_t *connection)
                 }
                 else
                 {
+                    context->current_file_record = meta[i].content;
                     state = FETCHING_FILE;
                     break;
-#error NOT DONE YET
                 }
             }
+
+            scas_cas_read_release(directory);
+            stack->current_idx = i;
 
             if (i == num_entries)
             {
@@ -427,8 +505,43 @@ scas_snapshot_push_iterate(struct scas_connection_t *connection)
 
         if (state == FETCHING_FILE)
         {
-#error OR HERE
+            if (scas_snapshot_push_issue_fetch(connection, context->current_file_record))
+            {
+                goto save_state_and_yield;
+            }
+
+            state = READING_FILE_HEADER;
         }
+
+        if (state == READING_FILE_HEADER)
+        {
+            if (scas_snapshot_push_read_header(connection, context->current_file_record))
+            {
+                goto save_state_and_yield;
+            }
+
+            state = READ_FILE;
+        }
+
+        /*
+         * After the file read has finished we continue iterating over the
+         * directory.
+         */
+        if (state == READ_FILE)
+        {
+            struct scas_cas_entry_t *cas_entry;
+
+            if (scas_connection_read(connection) != 0)
+            {
+                goto save_state_and_yield;
+            }
+
+            cas_entry = context->cas_entry;
+            scas_cas_end_write(cas_entry);
+            state = ITERATING_OVER_DIRECTORY;
+        }
+
+        continue;
 
     up_one_level:
         context->current_dir_record = scas_get_parent(context->current_dir_record);
@@ -437,7 +550,6 @@ scas_snapshot_push_iterate(struct scas_connection_t *connection)
         continue;
 
     save_state_and_yield:
-#error ha
         context->state = state;
         return 0;
     }
