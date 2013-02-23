@@ -186,7 +186,7 @@ scas_cas_contains(struct scas_hash_t hash)
 }
 
 const struct scas_cas_entry_t *
-scas_cas_read(struct scas_hash_t hash)
+scas_cas_read_acquire(struct scas_hash_t hash)
 {
     struct scas_cas_entry_t *entry;
     char filename[FILENAME_SIZE] = CACHE_ROOT;
@@ -196,6 +196,8 @@ scas_cas_read(struct scas_hash_t hash)
     entry = scas_cas_cache_find(hash);
     if (entry != NULL)
     {
+        ++entry->ref_count;
+
         return entry;
     }
 
@@ -210,7 +212,7 @@ scas_cas_read(struct scas_hash_t hash)
              * TODO: Evict entries from the cache and try again.
              */
             BREAK();
-            return scas_cas_read(hash);
+            return scas_cas_read_acquire(hash);
         }
 
         return NULL;
@@ -231,8 +233,18 @@ scas_cas_read(struct scas_hash_t hash)
 
     entry->fd = fd;
     entry->size = meta.st_size;
+    ++entry->ref_count;
 
     return entry;
+}
+
+void
+scas_cas_read_release(const struct scas_cas_entry_t *entry)
+{
+    struct scas_cas_entry_t *writable_entry;
+
+    writable_entry = (struct scas_cas_entry_t *)entry;
+    --writable_entry->ref_count;
 }
 
 struct scas_cas_entry_t *

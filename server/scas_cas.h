@@ -10,13 +10,17 @@ struct scas_cas_entry_t
     int fd;
     size_t size;
     long id;
+    int ref_count;
 };
 
 void
 scas_cas_cache_initialize(void);
 
 const struct scas_cas_entry_t *
-scas_cas_read(struct scas_hash_t hash);
+scas_cas_read_acquire(struct scas_hash_t hash);
+
+void
+scas_cas_read_release(const struct scas_cas_entry_t *entry);
 
 int
 scas_cas_contains(struct scas_hash_t hash);
