@@ -1,3 +1,9 @@
+/***********************************************************************
+ * scas, Copyright (c) 2012-2013, Maximilian Burke
+ * This file is distributed under the FreeBSD license. 
+ * See LICENSE for details.
+ ***********************************************************************/
+
 #define _POSIX_SOURCE
 
 #include <assert.h>

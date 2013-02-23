@@ -1,3 +1,9 @@
+/***********************************************************************
+ * scas, Copyright (c) 2012-2013, Maximilian Burke
+ * This file is distributed under the FreeBSD license. 
+ * See LICENSE for details.
+ ***********************************************************************/
+
 /*
  * The _GNU_SOURCE define must be set in order to be able to use the 
  * MAP_ANONYMOUS flag to mmap.
