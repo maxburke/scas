@@ -13,8 +13,8 @@
 enum scas_command_t
 {
     CMD_SNAPSHOT_PUSH,
-    CMD_SNAPSHOT_PULL,
     CMD_DATA_FETCH,
+    CMD_DATA,
     CMD_QUIT
 };
 
