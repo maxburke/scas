@@ -20,12 +20,10 @@
 #include "scas_base.h"
 #include "scas_cas.h"
 #include "scas_connection.h"
-#include "scas_linear_allocator.h"
 #include "scas_meta.h"
 #include "scas_net.h"
 
 #define POOL_REALLOCATION_DELTA 16
-#define SNAPSHOT_ROOT "snapshot/"
 
 enum connection_state_t
 {
@@ -40,7 +38,6 @@ struct scas_connection_t
     struct scas_header_t header;
     int fd;
     enum connection_state_t state;
-    struct scas_linear_allocator_t *allocator;
     void *context;
     void *ptr;
     uint64_t offset;
@@ -137,15 +134,20 @@ scas_connection_find(int fd)
 static void
 scas_connection_reset(struct scas_connection_t *connection)
 {
+    void *context;
     /*
      * Resets the connection object without closing the socket fd.
      */
 
+    context = connection->context;
     memset(&connection->header, 0, sizeof(struct scas_header_t));
-    scas_linear_allocator_destroy(connection->allocator);
 
-    connection->allocator = NULL;
-    connection->context = NULL;
+    if (context)
+    {
+        free(context);
+        connection->context = NULL;
+    }
+
     connection->ptr = NULL;
     connection->size = 0;
     connection->offset = 0;
@@ -156,7 +158,7 @@ scas_connection_free(struct scas_connection_t *connection)
 {
     scas_connection_list_remove(connection);
 
-    scas_linear_allocator_destroy(connection->allocator);
+    scas_connection_reset(connection);
     memset(connection, 0, sizeof(struct scas_connection_t));
 
     scas_connection_list_add(&free_list_anchor, connection);
@@ -165,8 +167,6 @@ scas_connection_free(struct scas_connection_t *connection)
 void
 scas_connection_initialize(void)
 {
-    scas_mkdir(SNAPSHOT_ROOT);
-
     free_list_anchor.next = &free_list_anchor;
     free_list_anchor.prev = &free_list_anchor;
 
@@ -261,7 +261,6 @@ scas_get_parent(struct scas_hash_t hash)
 static struct scas_snapshot_push_context_t *
 scas_initialize_snapshot_push_context(struct scas_connection_t *connection)
 {
-    struct scas_linear_allocator_t *allocator;
     struct scas_snapshot_push_context_t *context;
 
     if (connection->context != NULL)
@@ -269,15 +268,10 @@ scas_initialize_snapshot_push_context(struct scas_connection_t *connection)
         return connection->context;
     }
 
-    assert(connection->allocator == NULL);
-    allocator = scas_linear_allocator_create(DEFAULT_ALLOCATOR_SIZE);
-
-    context = scas_linear_allocator_alloc(allocator, sizeof(struct scas_snapshot_push_context_t));
+    context = calloc(1, sizeof(struct scas_snapshot_push_context_t));
     context->have_root = 0;
 
     connection->context = context;
-    connection->allocator = allocator;
-
     connection->ptr = &context->snapshot_meta;
     connection->size = sizeof(struct scas_snapshot_push_context_t);
     connection->offset = 0;
@@ -326,6 +320,8 @@ scas_snapshot_push_read_header(struct scas_connection_t *connection, struct scas
     {
         return 1;
     }
+
+    assert(context->push_header.command == CMD_DATA);
 
     context->cas_entry = scas_cas_begin_write(record, scas_header_payload_size(context->push_header));
     connection->ptr = context->cas_entry->mem;
@@ -394,6 +390,7 @@ scas_snapshot_push_iterate(struct scas_connection_t *connection)
         {
             if (scas_cas_contains(context->current_dir_record))
             {
+                assert(0 && "Program erroneously made it to this state.");
                 goto up_one_level;
             }
 
@@ -551,7 +548,11 @@ scas_snapshot_push_iterate(struct scas_connection_t *connection)
 
     up_one_level:
         context->current_dir_record = scas_get_parent(context->current_dir_record);
-        --context->depth;
+        if (context->depth-- == 0)
+        {
+            break;
+        }
+
         state = ITERATING_OVER_DIRECTORY;
         continue;
 
@@ -559,6 +560,9 @@ scas_snapshot_push_iterate(struct scas_connection_t *connection)
         context->state = state;
         return 0;
     }
+
+    scas_connection_reset(connection);
+    return 0;
 }
 
 int
@@ -611,7 +615,6 @@ scas_connection_handle_snapshot_push(struct scas_connection_t *connection)
         if (scas_cas_contains(context->current_dir_record))
         {
             scas_connection_reset(connection);
-
             return 0;
         }
     }
@@ -619,23 +622,39 @@ scas_connection_handle_snapshot_push(struct scas_connection_t *connection)
     return scas_snapshot_push_iterate(connection);
 }
 
-
-static int
-scas_connection_handle_snapshot_pull(struct scas_connection_t *connection)
+struct scas_data_fetch_context_t
 {
-    /*
-     *    SNAPSHOT_PULL ->
-     * snapshot_name[0] ->
-     *                  <- struct scas_directory_meta_t root
-     */
-    UNUSED(connection);
+    const struct scas_cas_entry_t *cas_entry;
+    int have_hash;
+    struct scas_hash_t hash;
+    struct scas_header_t fetch_header;
+};
 
-    return 0;
+static struct scas_data_fetch_context_t *
+scas_initialize_data_fetch_context(struct scas_connection_t *connection)
+{
+    struct scas_data_fetch_context_t *context;
+
+    if (connection->context != NULL)
+    {
+        return connection->context;
+    }
+
+    context = calloc(1, sizeof(struct scas_data_fetch_context_t));
+
+    connection->context = context;
+    connection->ptr = &context->hash;
+    connection->offset = 0;
+    connection->size = sizeof(struct scas_hash_t);
+
+    return context;
 }
 
 static int
 scas_connection_handle_data_fetch(struct scas_connection_t *connection)
 {
+    struct scas_data_fetch_context_t *context;
+
     /*
      * struct scas_hash_t
      * {
@@ -646,7 +665,24 @@ scas_connection_handle_data_fetch(struct scas_connection_t *connection)
      * struct scas_hash_t hash ->
      *                         <- data (gzip compressed)
      */
-    UNUSED(connection);
+
+    context = scas_initialize_data_fetch_context(connection);
+    
+    if (!context->have_hash)
+    {
+        const struct scas_cas_entry_t *cas_entry;
+
+        if (!scas_connection_read(connection))
+        {
+            return 0;
+        }
+
+        context->have_hash = 1;
+        cas_entry = scas_cas_read_acquire(context->hash);
+
+        context->fetch_header.packet_size = cas_entry->size + sizeof(struct scas_header_t);
+        context->fetch_header.command = CMD_DATA;
+    }
 
     return 0;
 }
@@ -667,8 +703,6 @@ scas_connection_process_command(struct scas_connection_t *connection)
          */
         case CMD_SNAPSHOT_PUSH:
             return scas_connection_handle_snapshot_push(connection);
-        case CMD_SNAPSHOT_PULL:
-            return scas_connection_handle_snapshot_pull(connection);
         case CMD_DATA_FETCH:
             return scas_connection_handle_data_fetch(connection);
         case CMD_QUIT:
