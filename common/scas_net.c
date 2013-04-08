@@ -29,7 +29,7 @@ scas_listen(void)
     memset(&addr, 0, sizeof addr);
     socket_fd = socket(AF_INET, SOCK_STREAM, 0);
    
-    SCAS_VERIFY(socket_fd == 1, "Could not create socket");
+    SCAS_VERIFY(socket_fd != 0, "Could not create socket");
 
     addr.sin_port = htons(SCAS_PORT);
     addr.sin_addr.s_addr = INADDR_ANY;
