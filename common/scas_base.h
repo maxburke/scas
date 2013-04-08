@@ -46,5 +46,11 @@ scas_log_system_error(const char *str);
 void
 scas_mkdir(const char *dir);
 
+struct scas_hash_t
+scas_hash_string(const char *string);
+
+struct scas_hash_t
+scas_hash_buffer(const void *ptr, size_t size);
+
 #endif
 
