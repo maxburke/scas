@@ -15,7 +15,6 @@
 
 #include "scas_base.h"
 #include "scas_create.h"
-#include "scas_list.h"
 #include "scas_mount.h"
 
 static int
@@ -99,14 +98,12 @@ int main(int argc, char *argv[])
     struct fuse_operations fuse_ops;
     int i;
     int create_snapshot;
-    int list_snapshots;
     const char *snapshot;
     const char *snapshot_server;
     const char *snapshot_root;
 
     memset(&fuse_ops, 0, sizeof(fuse_ops));
     create_snapshot = 0;
-    list_snapshots = 0;
     snapshot = NULL;
     snapshot_server = NULL;
     snapshot_root = NULL;
@@ -155,21 +152,11 @@ int main(int argc, char *argv[])
                 continue;
             }
         }
-
-        if (strcmp(argv[i], "-list") == 0)
-        {
-            list_snapshots = 1;
-        }
     }
 
     if (create_snapshot)
     {
         return scas_create_snapshot(snapshot, snapshot_root, snapshot_server);
-    }
-
-    if (list_snapshots)
-    {
-        return scas_list_snapshots(snapshot_server);
     }
 
     if (scas_mount_snapshot(snapshot_server, snapshot) != 0)
