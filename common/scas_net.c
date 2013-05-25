@@ -95,6 +95,7 @@ scas_connect(const char *server_name)
                     s = (struct sockaddr_in6 *)p->ai_addr;
                     s->sin6_port = htons(SCAS_PORT);
                 }
+                break;
             default:
                 BREAK();
                 break;
