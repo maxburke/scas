@@ -58,7 +58,8 @@ scas_accept(int socket_fd)
 int
 scas_connect(const char *server_name)
 {
-    struct addrinfo *addrinfo, *p;
+    struct addrinfo *addrinfo;
+    struct addrinfo *p;
     int socket_fd;
     int success = 0;
 
