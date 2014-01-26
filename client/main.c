@@ -5,6 +5,7 @@
  ***********************************************************************/
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
 #include <time.h>
@@ -16,6 +17,26 @@
 #include "scas_base.h"
 #include "scas_create.h"
 #include "scas_mount.h"
+#include "scas_arg_parse.h"
+
+static int force_mount;
+static int reset_snapshot;
+static int create_snapshot;
+static int mount_snapshot;
+static const char *create_snapshot_id;
+static const char *mount_snapshot_id;
+
+static const char *
+scas_strdup(const char *string)
+{
+    char *ptr;
+
+    ptr = calloc(strlen(string) + 1, 1);
+    strcpy(ptr, string);
+
+    return ptr;
+}
+
 
 static int
 scas_getattr(const char *filename, struct stat *stat_buf)
@@ -90,23 +111,128 @@ scas_destroy(void *context)
 {
     UNUSED(context);
 
+    // unmount image
+    // save state?
+    //  * state should be saved when it's changed, not here, in case something
+    //    bad happens.
+
+    if (create_snapshot_id)
+    {
+        free((void *)create_snapshot_id);
+    }
+
+    if (mount_snapshot_id)
+    {
+        free((void *)mount_snapshot_id);
+    }
+
     scas_log_shutdown();
+}
+
+static void
+scas_parse_arg_force(void *context, const struct scas_arg_t *arg, const char *value)
+{
+    UNUSED(context);
+    UNUSED(arg);
+    UNUSED(value);
+
+    force_mount = 1;
+}
+
+static void
+scas_parse_arg_reset(void *context, const struct scas_arg_t *arg, const char *value)
+{
+    UNUSED(context);
+    UNUSED(arg);
+    UNUSED(value);
+
+    reset_snapshot = 1;
+}
+
+static void
+scas_parse_arg_mount(void *context, const struct scas_arg_t *arg, const char *value)
+{
+    UNUSED(context);
+    UNUSED(arg);
+
+    mount_snapshot = 1;
+    mount_snapshot_id = scas_strdup(value);
+}
+
+static void
+scas_parse_arg_create(void *context, const struct scas_arg_t *arg, const char *value)
+{
+    UNUSED(context);
+    UNUSED(arg);
+
+    create_snapshot    = 1;
+    create_snapshot_id = scas_strdup(value);
+}
+
+static int
+scas_is_valid_args(void)
+{
+    #define VALIDATE(x, str) if (!(x)) { fprintf(stderr, "%s\n", str); return 0; } else (void)0
+
+    if (reset_snapshot)
+    {
+        VALIDATE(!force_mount, "Force mount cannot be used with new.");
+        VALIDATE(!create_snapshot, "Create snapshot cannot be used with new.");
+        VALIDATE(!mount_snapshot, "Mount snapshot cannot be used with new.");
+        return 0;
+    }
+
+    if (create_snapshot)
+    {
+        VALIDATE(!force_mount, "Force mount cannot be used with create.");
+        VALIDATE(!reset_snapshot, "New snapshot cannot be used with create.");
+        VALIDATE(!mount_snapshot, "Mount snapshot cannot be used with create.");
+        return 0;
+    }
+
+    if (mount_snapshot)
+    {
+        VALIDATE(!force_mount, "Force mount cannot be used with mount.");
+        VALIDATE(!reset_snapshot, "New snapshot cannot be used with mount.");
+        VALIDATE(!create_snapshot, "Create snapshot cannot be used with mount.");
+        return 0;
+    }
+
+
+    #undef VALIDATE
+
+    return 1;
+}
+
+static void
+scas_parse_args(int argc, char **argv)
+{
+    struct scas_arg_t args[] = 
+    {
+        { "-f", "--force",  ARG_TYPE_SWITCH,    scas_parse_arg_force },
+        { "-r", "--reset",  ARG_TYPE_SWITCH,    scas_parse_arg_reset },
+        { "-m", "--mount",  ARG_TYPE_PARAMETER, scas_parse_arg_mount },
+        { "-c", "--create", ARG_TYPE_PARAMETER, scas_parse_arg_create },
+    };
+    struct scas_arg_context_t context = 
+    {
+        argc,
+        argv,
+        NULL,
+        sizeof args / sizeof args[0],
+        args,
+        NULL                        /* No positional callback as positional
+                                       args are consumed by FUSE. */
+    };
+
+    scas_arg_parse(&context);
 }
 
 int main(int argc, char *argv[])
 {
     struct fuse_operations fuse_ops;
-    int i;
-    int create_snapshot;
-    const char *snapshot;
-    const char *snapshot_server;
-    const char *snapshot_root;
 
     memset(&fuse_ops, 0, sizeof(fuse_ops));
-    create_snapshot = 0;
-    snapshot = NULL;
-    snapshot_server = NULL;
-    snapshot_root = NULL;
 
     /*
      * TODO: 
@@ -126,43 +252,44 @@ int main(int argc, char *argv[])
      * to create the initial snapshot, or other initial/arbitrary snapshots.
      */
 
-    for (i = 1; i < (argc - 1); ++i)
-    {
-        if (i < (argc - 2))
-        {
-            if (strcmp(argv[i], "-create") == 0)
-            {
-                create_snapshot = 1;
-                snapshot = argv[++i];
-                snapshot_root = argv[++i];
-                continue;
-            }
-        }
 
-        if (i < (argc - 1))
-        {
-            if (strcmp(argv[i], "-snapshot") == 0)
-            {
-                snapshot = argv[++i];
-                continue;
-            } 
-            else if (strcmp(argv[i], "-server") == 0)
-            {
-                snapshot_server = argv[++i];
-                continue;
-            }
-        }
-    }
+    /*
+     * TODO August 5, 2013
+     * typical snapshot workflow:
+     *   1a. Mount an existing snapshot: 
+     *      scas_client --mount <snapshot ID> /fs/path
+     *   1b. or create a new one from zero: 
+     *      scas_client --reset /fs/path
+     *   2. Make changes. Sync files, etc.
+     *   3. Unmount: 
+     *      umount /fs/path
+     *   4. Create the snapshot: 
+     *      scas_client --create <snapshot ID>
+     *
+     * reset workflow: 
+     *   1. Mount an existing snapshot: 
+     *      scas_client --mount <snapshot ID> /fs/path 
+     *   2. Unmount: 
+     *      umount /fs/path
+     *   3. Re-mount, or mount a new snapshot:
+     *      scas_client --force -mount <snapshot ID> /fs/path
+     *
+     * If "-force" isn't specified in the reset workflow, the client should warn
+     * that a current snapshot exists and will require -force in order to 
+     * discard.
+     */
+    scas_parse_args(argc, argv);
+    
+    // TODO:
+    //  * validate args
+    //  * mount image here
 
-    if (create_snapshot)
-    {
-        return scas_create_snapshot(snapshot, snapshot_root, snapshot_server);
-    }
-
-    if (scas_mount_snapshot(snapshot_server, snapshot) != 0)
+    if (!scas_is_valid_args())
     {
         return -1;
     }
+
+    scas_mount_image();
 
     fuse_ops.getattr = scas_getattr;
     fuse_ops.open = scas_open;
